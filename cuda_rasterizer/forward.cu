@@ -526,7 +526,7 @@ renderCUDA(
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += normal[ch] * alpha * T;*/
 
-			// test if we get right ray dir
+			// test if we get right ray dir, by zz
 			/*glm::vec3 ray_dir = computeDirFromPixel(*cam_pos, tan_fovx, tan_fovy, viewmatrix, pixf.x, pixf.y, W, H);
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += ray_dir[ch] * alpha * T;*/
