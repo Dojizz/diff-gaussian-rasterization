@@ -515,16 +515,14 @@ renderCUDA(
 
 			
 			// gaussian ID = collected_id[j], compute normal from the ellipsoid
-			/*unsigned int gaussian_id = collected_id[j];
+			unsigned int gaussian_id = collected_id[j];
 			glm::vec3 ray_dir = computeDirFromPixel(*cam_pos, tan_fovx, tan_fovy, viewmatrix, pixf.x, pixf.y, W, H);
 			glm::vec3 center(means3D[gaussian_id * 3], means3D[gaussian_id * 3 + 1], means3D[gaussian_id * 3 + 2]);
 			glm::vec3 normal = computeColorFromNormal3(center, scales[gaussian_id], rotations[gaussian_id],
 				*cam_pos, ray_dir);
-			if (glm::length(normal) < 0.5)
-				continue;
 			normal = (normal + glm::vec3(1.f)) * 0.5f;
 			for (int ch = 0; ch < CHANNELS; ch++)
-				C[ch] += normal[ch] * alpha * T;*/
+				C[ch] += normal[ch] * alpha * T;
 
 			// test if we get right ray dir, by zz
 			/*glm::vec3 ray_dir = computeDirFromPixel(*cam_pos, tan_fovx, tan_fovy, viewmatrix, pixf.x, pixf.y, W, H);
@@ -532,8 +530,8 @@ renderCUDA(
 				C[ch] += ray_dir[ch] * alpha * T;*/
 
 			// Eq. (3) from 3D Gaussian splatting paper.
-			for (int ch = 0; ch < CHANNELS; ch++)
-				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+			/*for (int ch = 0; ch < CHANNELS; ch++)
+				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;*/
 
 			T = test_T;
 
