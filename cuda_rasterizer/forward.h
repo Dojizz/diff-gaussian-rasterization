@@ -17,11 +17,14 @@
 #include "device_launch_parameters.h"
 #define GLM_FORCE_CUDA
 #include "../third_party/glm/glm/glm.hpp"
+#include "rasterizer.h"
 
 namespace FORWARD
 {
 	// Perform initial steps for each Gaussian prior to rasterization.
-	void preprocess(int P, int D, int M,
+	void preprocess(
+		CudaRasterizer::CudaDebInfo* deb_info,
+		int P, int D, int M,
 		const float* orig_points,
 		const glm::vec3* scales,
 		const float scale_modifier,
@@ -35,9 +38,6 @@ namespace FORWARD
 		const float* projmatrix,
 		const glm::vec3* cam_pos,
 		const int W, int H,
-		const int render_mode,
-		const float min_depth, 
-		const float max_depth,
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
 		int* radii,
@@ -55,6 +55,7 @@ namespace FORWARD
 
 	// Main rasterization method.
 	void render(
+		CudaRasterizer::CudaDebInfo* deb_info,
 		const dim3 grid, dim3 block,
 		const uint2* ranges,
 		const uint32_t* point_list,

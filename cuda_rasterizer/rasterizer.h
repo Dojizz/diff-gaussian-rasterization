@@ -17,6 +17,17 @@
 
 namespace CudaRasterizer
 {
+	// this struct controls the debug info transports to the cuda renderer
+	struct CudaDebInfo {
+		float scale_x = 1.f;
+		float scale_y = 1.f;
+		float scale_z = 1.f;
+		float opacity = 1.f;
+		int render_mode = 0; // 0 for splat, 1 for depth, 2 for normal, 3 for acc depth, 4 for acc normal
+		float min_depth = 1.f;
+		float max_depth = 10.f;
+	};
+
 	class Rasterizer
 	{
 	public:
@@ -29,15 +40,13 @@ namespace CudaRasterizer
 			bool* present);
 
 		static int forward(
+			CudaDebInfo* deb_info,
 			std::function<char* (size_t)> geometryBuffer,
 			std::function<char* (size_t)> binningBuffer,
 			std::function<char* (size_t)> imageBuffer,
 			const int P, int D, int M,
 			const float* background,
 			const int width, int height,
-			const int render_mode,
-			const float min_depth,
-			const float max_depth,
 			const float* means3D,
 			const float* shs,
 			const float* colors_precomp,
