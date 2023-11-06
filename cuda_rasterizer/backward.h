@@ -16,7 +16,7 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #define GLM_FORCE_CUDA
-#include "../third_party/glm/glm/glm.hpp"
+#include <glm/glm.hpp>
 
 namespace BACKWARD
 {

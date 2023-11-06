@@ -16,15 +16,11 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 #define GLM_FORCE_CUDA
-#include "../third_party/glm/glm/glm.hpp"
-#include "rasterizer.h"
-
+#include <glm/glm.hpp>
+#include "../../../../../src/projects/gaussianviewer/renderer/Parameters.hpp"
 namespace FORWARD
 {
-	// Perform initial steps for each Gaussian prior to rasterization.
-	void preprocess(
-		CudaRasterizer::CudaDebInfo* deb_info,
-		int P, int D, int M,
+	void lightpreprocess(int P, int D, int M,
 		const float* orig_points,
 		const glm::vec3* scales,
 		const float scale_modifier,
@@ -38,6 +34,44 @@ namespace FORWARD
 		const float* projmatrix,
 		const glm::vec3* cam_pos,
 		const int W, int H,
+		const int render_mode,
+		const float min_depth,
+		const float max_depth,
+		Parameters::Light light_info,
+		const float focal_x, float focal_y,
+		const float tan_fovx, float tan_fovy,
+		int* radii,
+		float2* points_xy_image,
+		float* depths,
+		float* cov3Ds,
+		float* colors,
+		float4* conic_opacity,
+		const dim3 grid,
+		uint32_t* tiles_touched,
+		bool prefiltered,
+		int2* rects,
+		float3 boxmin,
+		float3 boxmax);
+
+	// Perform initial steps for each Gaussian prior to rasterization.
+	void preprocess(int P, int D, int M,
+		const float* orig_points,
+		const glm::vec3* scales,
+		const float scale_modifier,
+		const glm::vec4* rotations,
+		const float* opacities,
+		const float* shs,
+		bool* clamped,
+		const float* cov3D_precomp,
+		const float* colors_precomp,
+		const float* viewmatrix,
+		const float* projmatrix,
+		const glm::vec3* cam_pos,
+		const int W, int H,
+		const int render_mode,
+		const float min_depth, 
+		const float max_depth,
+		Parameters::Light light_info,
 		const float focal_x, float focal_y,
 		const float tan_fovx, float tan_fovy,
 		int* radii,
@@ -55,7 +89,6 @@ namespace FORWARD
 
 	// Main rasterization method.
 	void render(
-		CudaRasterizer::CudaDebInfo* deb_info,
 		const dim3 grid, dim3 block,
 		const uint2* ranges,
 		const uint32_t* point_list,
