@@ -14,6 +14,7 @@
 
 #include <vector>
 #include <functional>
+#include "../../../../../src/projects/gaussianviewer/renderer/Parameters.hpp"
 
 namespace CudaRasterizer
 {

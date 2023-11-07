@@ -20,9 +20,9 @@
 #include <cub/cub.cuh>
 #include <cub/device/device_radix_sort.cuh>
 #define GLM_FORCE_CUDA
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include "../third_party/glm/glm/glm.hpp"
+#include "../third_party/glm/glm/gtc/type_ptr.hpp"
+#include "../third_party/glm/glm/gtc/matrix_transform.hpp"
 #define __CUDACC__
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>

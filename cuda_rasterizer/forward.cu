@@ -634,14 +634,14 @@ __global__ void lightpreprocessCUDA(
 	if (colors_precomp == nullptr)
 	{
 		glm::vec3 result;
-		if (render_mode == 0)
+		if (deb_info->render_mode == 0)
 			result = computeColorFromSH(idx, D, M, (glm::vec3*)orig_points, *cam_pos, shs, clamped);
-		else if (render_mode == 1)
-			result = computeColorFromDepth(idx, (glm::vec3*)orig_points, *cam_pos, min_depth, max_depth);
-		else if (render_mode == 2)
-			result = computeColorFromNormal2(scales[idx], rotations[idx]);
-		else if (render_mode == 3)
-			result = computeColorFromLight(idx, (glm::vec3*)orig_points, light_info, min_depth, max_depth);
+		else if (deb_info->render_mode == 1)
+			result = computeColorFromDepth(idx, (glm::vec3*)orig_points, *cam_pos, deb_info->min_depth, deb_info->max_depth);
+		else if (deb_info->render_mode == 2)
+			result = computeColorFromNormal2(idx, (glm::vec3*)orig_points, scales[idx], rotations[idx], *cam_pos);
+		else if (deb_info->render_mode == 3)
+			result = computeColorFromLight(idx, (glm::vec3*)orig_points, light_info, deb_info->min_depth, deb_info->max_depth);
 		//result = computeColorFromNormal(idx, (glm::vec3*)orig_points, *cam_pos, scales[idx], rotations[idx]);
 		rgb[idx * C + 0] = result.x;
 		rgb[idx * C + 1] = result.y;
