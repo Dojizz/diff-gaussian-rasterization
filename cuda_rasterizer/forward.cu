@@ -15,6 +15,20 @@
 #include <cooperative_groups/reduce.h>
 namespace cg = cooperative_groups;
 
+// Light
+__device__ glm::vec3 computeColorFromLight(int idx, const glm::vec3* means, Parameters::Light light_info,const float min_depth, const float max_depth) {
+	glm::vec3 pos = means[idx];
+	glm::vec3 lightpos = glm::vec3(light_info.position[0], light_info.position[1], light_info.position[2]);
+	//glm::vec3 lightpos = glm::vec3(0.f, 0.f, 0.f);
+	glm::vec3 dir = lightpos - pos;
+	float minn = min(min_depth, max_depth);
+	float maxx = max(min_depth, max_depth);
+	float distance = glm::length(dir);
+	if (distance < minn || distance > maxx)
+		return glm::vec3(0.f);
+	return glm::vec3(1.0f);
+}
+
 // Forward version of 2D covariance matrix computation
 __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix)
 {
@@ -221,11 +235,7 @@ __device__ glm::vec3 computeColorFromNormal2(int idx, const glm::vec3* means, co
 	dir[dir_idx] = 1.f;
 	// rotate by rotation
 	glm::mat3 rot_m = quatToMat3(rotation);
-	glm::vec3 normal = glm::normalize(rot_m * dir);
-	glm::vec3 ray_dir = means[idx] - campos;
-	if (glm::dot(normal, ray_dir) > 0.f)
-		normal = -normal;
-	return (normal + glm::vec3(1.f)) * 0.5f;
+	return glm::normalize(rot_m * dir);
 }
 
 // choose the intersection point normal as normal
@@ -379,6 +389,7 @@ __device__ glm::vec3 computeDirFromPixel(const glm::vec3 campos, float tan_fovx,
 template<int C>
 __global__ void preprocessCUDA(
 	CudaRasterizer::CudaDebInfo* deb_info,
+	Parameters::Light light_info,
 	int P, int D, int M,
 	const float* orig_points,
 	const glm::vec3* scales,
@@ -510,6 +521,142 @@ __global__ void preprocessCUDA(
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
 
+template<int C>
+__global__ void lightpreprocessCUDA(
+	CudaRasterizer::CudaDebInfo* deb_info,
+	Parameters::Light light_info,
+	int P, int D, int M,
+	const float* orig_points,
+	const glm::vec3* scales,
+	const float scale_modifier,
+	const glm::vec4* rotations,
+	const float* opacities,
+	const float* shs,
+	bool* clamped,
+	const float* cov3D_precomp,
+	const float* colors_precomp,
+	const float* viewmatrix,
+	const float* projmatrix,
+	const glm::vec3* cam_pos,
+	const int W, int H,
+	
+	const float tan_fovx, float tan_fovy,
+	const float focal_x, float focal_y,
+	int* radii,
+	float2* points_xy_image,
+	float* depths,
+	float* cov3Ds,
+	float* rgb,
+	float4* conic_opacity,
+	const dim3 grid,
+	uint32_t* tiles_touched,
+	bool prefiltered,
+	int2* rects,
+	float3 boxmin,
+	float3 boxmax)
+{
+	auto idx = cg::this_grid().thread_rank();
+	if (idx >= P)
+		return;
+
+	// Initialize radius and touched tiles to 0. If this isn't changed,
+	// this Gaussian will not be processed further.
+	radii[idx] = 0;
+	tiles_touched[idx] = 0;
+
+	// Perform near culling, quit if outside.
+	float3 p_view;
+	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view))
+		return;
+
+	// Transform point by projecting
+	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
+
+	if (p_orig.x < boxmin.x || p_orig.y < boxmin.y || p_orig.z < boxmin.z ||
+		p_orig.x > boxmax.x || p_orig.y > boxmax.y || p_orig.z > boxmax.z)
+		return;
+
+	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
+	float p_w = 1.0f / (p_hom.w + 0.0000001f);
+	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
+
+	// If 3D covariance matrix is precomputed, use it, otherwise compute
+	// from scaling and rotation parameters. 
+	const float* cov3D;
+	if (cov3D_precomp != nullptr)
+	{
+		cov3D = cov3D_precomp + idx * 6;
+	}
+	else
+	{
+		computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3Ds + idx * 6);
+		cov3D = cov3Ds + idx * 6;
+	}
+
+	// Compute 2D screen-space covariance matrix
+	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+
+	// Invert covariance (EWA algorithm)
+	float det = (cov.x * cov.z - cov.y * cov.y);
+	if (det == 0.0f)
+		return;
+	float det_inv = 1.f / det;
+	float3 conic = { cov.z * det_inv, -cov.y * det_inv, cov.x * det_inv };
+
+	// Compute extent in screen space (by finding eigenvalues of
+	// 2D covariance matrix). Use extent to compute a bounding rectangle
+	// of screen-space tiles that this Gaussian overlaps with. Quit if
+	// rectangle covers 0 tiles. 
+
+	float mid = 0.5f * (cov.x + cov.z);
+	float lambda1 = mid + sqrt(max(0.1f, mid * mid - det));
+	float lambda2 = mid - sqrt(max(0.1f, mid * mid - det));
+	float my_radius = ceil(3.f * sqrt(max(lambda1, lambda2)));
+	float2 point_image = { ndc2Pix(p_proj.x, W), ndc2Pix(p_proj.y, H) };
+	uint2 rect_min, rect_max;
+
+	if (rects == nullptr) 	// More conservative
+	{
+		getRect(point_image, my_radius, rect_min, rect_max, grid);
+	}
+	else // Slightly more aggressive, might need a math cleanup
+	{
+		const int2 my_rect = { (int)ceil(3.f * sqrt(cov.x)), (int)ceil(3.f * sqrt(cov.z)) };
+		rects[idx] = my_rect;
+		getRect(point_image, my_rect, rect_min, rect_max, grid);
+	}
+
+	if ((rect_max.x - rect_min.x) * (rect_max.y - rect_min.y) == 0)
+		return;
+
+	// If colors have been precomputed, use them, otherwise convert
+	// spherical harmonics coefficients to RGB color.
+	if (colors_precomp == nullptr)
+	{
+		glm::vec3 result;
+		if (render_mode == 0)
+			result = computeColorFromSH(idx, D, M, (glm::vec3*)orig_points, *cam_pos, shs, clamped);
+		else if (render_mode == 1)
+			result = computeColorFromDepth(idx, (glm::vec3*)orig_points, *cam_pos, min_depth, max_depth);
+		else if (render_mode == 2)
+			result = computeColorFromNormal2(scales[idx], rotations[idx]);
+		else if (render_mode == 3)
+			result = computeColorFromLight(idx, (glm::vec3*)orig_points, light_info, min_depth, max_depth);
+		//result = computeColorFromNormal(idx, (glm::vec3*)orig_points, *cam_pos, scales[idx], rotations[idx]);
+		rgb[idx * C + 0] = result.x;
+		rgb[idx * C + 1] = result.y;
+		rgb[idx * C + 2] = result.z;
+	}
+
+	// Store some useful helper data for the next steps.
+	depths[idx] = p_view.z;
+	radii[idx] = my_radius;
+	points_xy_image[idx] = point_image; // gaussian position in pixel screen
+	// Inverse 2D covariance and opacity neatly pack into one float4
+	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacities[idx] };
+	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
+}
+
 // Main rasterization method. Collaboratively works on one tile per
 // block, each thread treats one pixel. Alternates between fetching 
 // and rasterizing data.
@@ -517,6 +664,7 @@ template <uint32_t CHANNELS>
 __global__ void __launch_bounds__(BLOCK_X* BLOCK_Y)
 renderCUDA(
 	CudaRasterizer::CudaDebInfo* deb_info,
+	Parameters::Light light_info,
 	const uint2* __restrict__ ranges,
 	const uint32_t* __restrict__ point_list,
 	int W, int H,
@@ -662,6 +810,7 @@ renderCUDA(
 
 void FORWARD::render(
 	CudaRasterizer::CudaDebInfo* deb_info,
+	Parameters::Light light_info,
 	const dim3 grid, dim3 block,
 	const uint2* ranges,
 	const uint32_t* point_list,
@@ -683,6 +832,7 @@ void FORWARD::render(
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
 		deb_info,
+		light_info,
 		ranges,
 		point_list,
 		W, H,
@@ -703,6 +853,7 @@ void FORWARD::render(
 
 void FORWARD::preprocess(
 	CudaRasterizer::CudaDebInfo* deb_info,
+	Parameters::Light light_info,
 	int P, int D, int M,
 	const float* means3D,
 	const glm::vec3* scales,
@@ -734,6 +885,7 @@ void FORWARD::preprocess(
 {
 	preprocessCUDA<NUM_CHANNELS> << <(P + 255) / 256, 256 >> > (
 		deb_info,
+		light_info,
 		P, D, M,
 		means3D,
 		scales,
